@@ -1,0 +1,4 @@
+interface:
+  display_name: "B站空间动态原图下载"
+  short_description: "按 UID 收藏 B站 UP 主全部历史空间动态原图，保留动图并支持断点恢复"
+  default_prompt: "使用 $bilibili-space-image-downloader 下载 UID 指定的 UP 主全部空间动态原图。"
