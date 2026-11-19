@@ -6,14 +6,29 @@ Agent Skill `bilibili-space-image-downloader`：给定 UP 主 UID，收藏当前
 
 ## 安装
 
-需要满足[浏览器能力契约](skills/bilibili-space-image-downloader/references/browser-workflow.md)的 agent 运行环境（已登录浏览器标签页 + JS REPL；Codex 桌面的 `cua_repl` 是已验证的参考实现）、已登录的 B站会话、Python 3.10+、Node.js 20+。Python 脚本使用 requests 和 Pillow；结构校验另需 PyYAML。依赖安装到你选用的 Python 环境：
+需要满足[浏览器能力契约](skills/bilibili-space-image-downloader/references/browser-workflow.md)的 agent 运行环境（已登录浏览器标签页 + JS REPL；Codex 桌面的 `cua_repl` 是已验证的参考实现）、已登录的 B站会话、Python 3.10+、Node.js 20+。
+
+用 [skills.sh](https://skills.sh) CLI 安装（CLI 另需 Node.js 22.20+；自动识别本机 agent 并装入对应技能目录，默认项目级，`-g` 跨项目；可用 `@v1.0.0` 这类发布标签固定版本）：
 
 ```bash
-python3 -m pip install -r skills/bilibili-space-image-downloader/scripts/requirements.txt
+npx skills add Lin-Ruipeng/bilibili-space-image-downloader-skill
+```
+
+或从源码安装：
+
+```bash
 python3 install_skill.py
 ```
 
-默认安装到跨 agent 共享技能目录 `~/.agents/skills`。装入某个 agent 的专属目录时用 `--destination`，例如 Claude Code `~/.claude/skills`、Codex `~/.codex/skills`（或 `$CODEX_HOME/skills`）。已有同名技能时使用 `--update`，旧安装会保留为备份。安装后按该 agent 的技能发现机制重新加载或开启新对话。
+源码安装默认到跨 agent 共享技能目录 `~/.agents/skills`。装入某个 agent 的专属目录时用 `--destination`，例如 Claude Code `~/.claude/skills`、Codex `~/.codex/skills`（或 `$CODEX_HOME/skills`）。已有同名技能时使用 `--update`，旧安装会保留为备份。
+
+Python 脚本使用 requests 和 Pillow；结构校验另需 PyYAML。依赖安装到你选用的 Python 环境，`-r` 指向实际技能目录下的 `scripts/requirements.txt`（源码仓库内为 `skills/bilibili-space-image-downloader/scripts/requirements.txt`）：
+
+```bash
+python3 -m pip install -r skills/bilibili-space-image-downloader/scripts/requirements.txt
+```
+
+安装后按该 agent 的技能发现机制重新加载或开启新对话。
 
 ## 使用
 
