@@ -1,4 +1,4 @@
-// Import inside Codex cua_repl after reading its current browser/CDP documentation.
+// Import inside a host JS REPL satisfying the browser capability contract in references/browser-workflow.md.
 // Browser operations use the supplied logged-in Tab; no standalone browser or API fetch.
 import fs from 'node:fs/promises';
 import path from 'node:path';

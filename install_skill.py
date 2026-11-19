@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Install the bundled skill without overwriting an existing installation."""
 import argparse
-import os
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
@@ -11,7 +10,7 @@ NAME = 'bilibili-space-image-downloader'
 
 def install(destination=None, update=False):
     source = Path(__file__).resolve().parent / 'skills' / NAME
-    base = Path(destination).expanduser() if destination else Path(os.environ.get('CODEX_HOME', Path.home() / '.codex')) / 'skills'
+    base = Path(destination).expanduser() if destination else Path.home() / '.agents' / 'skills'
     target = base.resolve() / NAME
     if source.resolve() == target:
         raise ValueError('source is already the target')

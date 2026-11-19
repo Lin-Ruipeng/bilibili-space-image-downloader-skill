@@ -1,12 +1,24 @@
 # 浏览器采集
 
+## 能力契约
+
+脚本是宿主浏览器工具的适配器，必须在满足以下契约的 JS REPL 内导入；它不是独立 Playwright 程序，也不通过本地 HTTP 调用动态 API。Codex 桌面的 `cua_repl` 是已验证的参考实现；其他 agent 环境把自有浏览器工具包装成同一接口后导入。宿主只有截图级 UI 自动化等不满足契约的能力时，停止并说明缺少的能力。
+
+REPL 须支持 `await import('file:///…')` 导入 ESM 并输出返回值。`createCollector({tab, root, cdp, tabs})` 接受：
+
+- `tab`（必需）：已登录 B站的浏览器标签页。
+  - `tab.playwright`：Playwright 风格页面 API——`evaluate(fn)`、`waitForTimeout(ms)`、`locator(selector)`、`getByText(text, {exact})`、`getByRole(role, {name, exact})`；locator 支持 `.first()`、`.nth(i)`、`.locator(selector)`、`.filter({visible: true})`、`.count()`、`.evaluate(fn)`、`.click({timeoutMs})`、`.waitFor({state: 'visible', timeoutMs})`。超时参数名是 `timeoutMs`，不是标准 Playwright 的 `timeout`。
+  - `tab.url()`、`tab.goto(url)`、`tab.reload()`。
+  - `tab.scroll([x, y], 'up'|'down', pages)`、`tab.click([x, y])`，坐标为视口像素。
+  - `tab.getAXState({emit: false})`、`tab.getScreenshot({emit: false})`。
+- `cdp`（可选）：同一标签页的 CDP 观察——`cdp.send(method, params)`（用到 `Network.enable`、`Network.disable`、`Network.getResponseBody`）与 `cdp.readEvents({methods, afterSequence?, limit?})`，返回 `{cursor, events, hasMore, truncated}`，事件为 `{method, params}`。该能力不可用时传入 `null`，但仍需可见的明确结束标记才能完成。
+- `tabs`（可选）：`{list(), get(id)}`；`list()` 返回 `[{id, url}]`，`get(id)` 返回的标签页有 `close()`。用于作者名字没有直接空间链接时核验作者空间 UID。
+
 ## 初始化与运行
 
-脚本是 Codex 浏览器工具的适配器，必须在已初始化的 `cua_repl` 内导入；它不是独立 Playwright 程序，也不通过本地 HTTP 调用动态 API。
+先按当前宿主工具文档取得已登录浏览器标签页，打开 `https://space.bilibili.com/UID/dynamic` 并读取状态。导入前阅读此脚本和当前浏览器文档；需要观察分页响应时，先读取宿主的 CDP 能力文档（Codex 中为 `tab.capabilities.get('cdp').documentation()`）。使用已获准的 `cdp` 能力仅观察页面自己发起的请求；初始化 `Network.enable` 或后续操作被权限拒绝时，保存 `blocked` 状态与原因并停止，恢复访问后按恢复流程继续。
 
-先按当前工具文档取得内置浏览器标签页，打开 `https://space.bilibili.com/UID/dynamic` 并读取状态。导入前阅读此脚本和当前浏览器文档；需要观察分页响应时，先读取 `tab.capabilities.get('cdp').documentation()`。使用已获准的 `cdp` 能力仅观察页面自己发起的请求；初始化 `Network.enable` 或后续操作被权限拒绝时，保存 `blocked` 状态与原因并停止，恢复访问后按恢复流程继续。如果该能力不可用，可传入 `null`，但仍需可见的明确结束标记才能完成。
-
-在 `cua_repl` 中，替换为已确认的技能路径、归档路径和 Tab 变量：
+Codex `cua_repl` 参考示例，替换为已确认的技能路径、归档路径和 Tab 变量：
 
 ```javascript
 var biliModule = await import('file:///ABSOLUTE_SKILL_PATH/scripts/browser_collect.mjs');
@@ -17,7 +29,7 @@ var biliCollector = await biliModule.createCollector({tab, root: '/ABSOLUTE_ARCH
 nodeRepl.write(await biliCollector.run(38000));
 ```
 
-持续调用同一 `biliCollector.run(38000)`，直到停止或 `all_captured`。`run(38000, 'discover')` 只发现历史；`run(38000, 'capture')` 只消费已发现队列，适用于定向补抓与样例核验。队列采集结束不会将尚未遍历的历史入口标记完成。完成或停止后调用 `biliCollector.close()` 关闭网络观测。
+其他环境按能力契约包装后同样调用 `createCollector`。持续调用同一 `biliCollector.run(38000)`，直到停止或 `all_captured`。`run(38000, 'discover')` 只发现历史；`run(38000, 'capture')` 只消费已发现队列，适用于定向补抓与样例核验。队列采集结束不会将尚未遍历的历史入口标记完成。完成或停止后调用 `biliCollector.close()` 关闭网络观测。
 
 ## 历史入口
 
