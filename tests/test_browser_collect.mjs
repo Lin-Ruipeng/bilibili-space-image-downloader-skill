@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
+import {spawnSync} from 'node:child_process';
 import {createCollector} from '../skills/bilibili-space-image-downloader/scripts/browser_collect.mjs';
 
 const PID = '90071992547409931';
@@ -110,6 +111,24 @@ test('unassignable body images fail the post instead of reporting complete', asy
   await collector.record(slide(1, 1));
   await assert.rejects(() => collector.captureStep(), /unassigned body images mismatch/);
   assert.equal(collector.current.post.capture_complete, false);
+});
+
+test('documented interrupted recovery command actually restores collecting', async () => {
+  const parent = await fs.mkdtemp(path.join(os.tmpdir(), 'bili-resume-test-'));
+  const root = path.join(parent, '12345');
+  await fs.mkdir(path.join(root, '.collection', 'posts'), {recursive: true});
+  await fs.writeFile(path.join(root, '.collection', 'index.json'), JSON.stringify({
+    schema_version: 2, uid: '12345', include_columns: false,
+    required_entries: ['dynamic', 'opus'], phase: 'interrupted', candidates: {}, traversal: {},
+  }));
+  await assert.rejects(() => createCollector({tab: stubTab(), root, cdp: null}), /--resume/);
+  const python = process.platform === 'win32' ? 'python' : 'python3';
+  const archivePy = path.resolve('skills/bilibili-space-image-downloader/scripts/archive.py');
+  const resumed = spawnSync(python, [archivePy, '--uid', '12345', '--output-root', parent, '--resume'],
+    {encoding: 'utf8'});
+  assert.equal(resumed.status, 0, resumed.stderr);
+  const collector = await createCollector({tab: stubTab(), root, cdp: null});
+  assert.equal(collector.index.phase, 'discovering');
 });
 
 test('CDP permission denial during Network.enable persists blocked state', async () => {

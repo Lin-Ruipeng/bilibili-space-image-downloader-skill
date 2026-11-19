@@ -349,6 +349,15 @@ class DownloadChecks(unittest.TestCase):
                              capture_output=True)
         self.assertEqual(cli.returncode, 1)
 
+    def test_interrupted_requires_explicit_resume(self):
+        state = load_state(self.root)
+        state['phase'] = 'interrupted'
+        atomic_json(self.root / '.collection/index.json', state)
+        initialize('12345', self.tmp.name)
+        self.assertEqual(load_state(self.root)['phase'], 'interrupted')
+        initialize('12345', self.tmp.name, resume=True)
+        self.assertEqual(load_state(self.root)['phase'], 'discovering')
+
     def test_uid_isolation_and_scope_guard(self):
         other = initialize('54321', self.tmp.name)
         self.assertNotEqual(other, self.root)

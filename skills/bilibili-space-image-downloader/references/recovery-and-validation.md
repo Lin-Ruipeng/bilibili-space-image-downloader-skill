@@ -10,8 +10,8 @@ UID 与帖子 ID 都是字符串。每张图记录正文来源、发布时间、
 
 ## 恢复操作
 
-- 普通中断：用同样 UID、保存根目录和范围初始化，再创建新的采集器并继续运行；下载器再次运行会核验并跳过成功项。
-- 加载停滞：历史仍未完成。排查页面后重新建立采集器重访入口，不修改末尾证据。
+- 普通中断：用同样 UID、保存根目录和范围运行 `archive.py --uid UID --output-root ROOT --resume`（专栏范围仍需原参数），再创建新的采集器并继续运行；下载器再次运行会核验并跳过成功项。不带 `--resume` 的初始化不会解除 `interrupted`，采集器会拒绝启动。
+- 加载停滞：历史仍未完成，phase 为 `interrupted`。排查页面后运行 `archive.py --uid UID --output-root ROOT --resume`，再重新建立采集器重访入口，不修改末尾证据。
 - 浏览器帖子失败：修正结构/加载问题后调用 `biliCollector.retryFailed()`，再执行采集。
 - 权限、验证码、登录或访问限制：先实际恢复访问。确认恢复后运行 `archive.py --uid UID --output-root ROOT --resume`（专栏范围仍需原参数），再建立采集器；历史进度和文件保持。下载器写出的 `.collection/download-stop.json` 在恢复后由 `download_images.py --root ARCHIVE --failed-only` 清理。恢复许可并不等于一次失败本身被修复，仍要实际测试。
 - 下载失败：`download_images.py --root ARCHIVE --failed-only`；图片 URL 失效时先调用 `biliCollector.recapturePost('POST_ID')`，执行 `run(38000, 'capture')` 从查看器重新采集该帖，再补抓。
