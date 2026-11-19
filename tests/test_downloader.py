@@ -217,6 +217,46 @@ class DownloadChecks(unittest.TestCase):
         self.assertTrue(verify(self.root)['complete'])
         self.assertTrue(downloader.run(failed_only=True)['complete'])
 
+    def test_copy_fallback_interruption_leaves_no_final_file_and_recovers(self):
+        self.post(count=2)
+        self.finish_history()
+        payload = self.payload
+
+        def broken_copy(src, dst):
+            with open(src, 'rb') as fsrc, open(dst, 'wb') as fdst:
+                fdst.write(fsrc.read(len(payload) // 2))
+            raise OSError('simulated disk full mid-copy')
+
+        downloader = self.downloader()
+        with patch('download_images.os.link', side_effect=OSError('no hardlinks')), \
+             patch('download_images.shutil.copyfile', side_effect=broken_copy):
+            downloader.import_posts()
+            downloader.index_existing()
+            for row in list(downloader.db.execute('SELECT * FROM images WHERE active=1 ORDER BY ordinal')):
+                downloader.download(row)
+        folder = self.root / '2020' / '2020-01-01_90071992547409931'
+        self.assertFalse((folder / '002.png').exists())
+        self.assertFalse(list(folder.glob('*.copytmp')))
+        self.assertEqual(downloader.db.execute('SELECT status FROM images WHERE ordinal=2').fetchone()['status'], 'failed')
+        with patch('download_images.os.link', side_effect=OSError('no hardlinks')):
+            self.assertTrue(downloader.run(failed_only=True)['complete'])
+        self.assertEqual((folder / '002.png').read_bytes(), payload)
+
+    def test_corrupt_final_file_is_quarantined_and_replaced(self):
+        self.post()
+        self.finish_history()
+        target = self.root / '2020' / '2020-01-01_90071992547409931' / '001.png'
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(self.payload[:100])
+        downloader = self.downloader()
+        self.assertTrue(downloader.run()['complete'])
+        row = downloader.db.execute('SELECT * FROM images').fetchone()
+        self.assertEqual(Path(row['path']).read_bytes(), self.payload)
+        quarantined = Path(row['superseded_path'])
+        self.assertIn('corrupt', quarantined.name)
+        self.assertEqual(quarantined.read_bytes(), self.payload[:100])
+        self.assertTrue(verify(self.root)['complete'])
+
     def test_missing_viewer_evidence_rejected(self):
         self.post(evidence=False)
         with self.assertRaisesRegex(ValueError, 'viewer evidence'):

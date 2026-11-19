@@ -137,6 +137,13 @@ class Downloader:
             self.hash_paths[sha] = str(destination)
         return str(destination)
 
+    def quarantine(self, target, row):
+        stamp = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')
+        destination = self.collection / 'superseded' / f"{row['post_id']}_{row['ordinal']:03d}_corrupt_{stamp}{target.suffix}"
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        os.replace(target, destination)
+        return str(destination)
+
     def fetch(self, row, part):
         parsed = urlparse(row['url'])
         if parsed.scheme != 'https' or not (parsed.hostname or '').endswith('.hdslb.com'):
@@ -241,15 +248,20 @@ class Downloader:
                 duplicate, reuse, reuse_reason, superseded_path = None, None, None, None
                 with self.lock:
                     if target.exists():
-                        old_info = inspect_file(target)
-                        if old_info['sha256'] == info['sha256']:
-                            duplicate = self.hash_paths.get(info['sha256'])
-                            if duplicate == str(target):
-                                duplicate = None
-                            reuse = 'existing'
-                            part.unlink(missing_ok=True)
-                        else:
-                            superseded_path = self.supersede(target, row, old_info['sha256'])
+                        try:
+                            old_info = inspect_file(target)
+                        except Exception:
+                            superseded_path = self.quarantine(target, row)
+                            old_info = None
+                        if old_info is not None:
+                            if old_info['sha256'] == info['sha256']:
+                                duplicate = self.hash_paths.get(info['sha256'])
+                                if duplicate == str(target):
+                                    duplicate = None
+                                reuse = 'existing'
+                                part.unlink(missing_ok=True)
+                            else:
+                                superseded_path = self.supersede(target, row, old_info['sha256'])
                     if reuse is None:
                         if info['sha256'] in self.hash_paths:
                             duplicate = self.hash_paths[info['sha256']]
@@ -257,7 +269,14 @@ class Downloader:
                                 os.link(duplicate, target)
                                 reuse = 'hardlink'
                             except OSError as exc:
-                                shutil.copyfile(duplicate, target)
+                                temporary = target.with_name(target.name + '.copytmp')
+                                try:
+                                    shutil.copyfile(duplicate, temporary)
+                                    if inspect_file(temporary)['sha256'] != info['sha256']:
+                                        raise ValueError('copy source changed during fallback')
+                                    os.replace(temporary, target)
+                                finally:
+                                    temporary.unlink(missing_ok=True)
                                 reuse = 'copy'
                                 reuse_reason = str(exc)
                             part.unlink(missing_ok=True)
