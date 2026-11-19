@@ -50,3 +50,9 @@ issue #1 的 7 项静态审查发现先经动态复现确认（本地 HTTP 服�
 Windows 宿主上 `test_sigterm_watcher_saves_report_and_returns_interrupted` 因 `process.terminate()` 为强杀、不经过 SIGTERM 处理器而失败（退出码 1 而非 130），属环境语义差异；POSIX 宿主预期通过。
 
 真实浏览器对照：已登录火狐会话中打开 opus/1249013928921399335，经"查看大图"复制查看器原图 URL；脚本以无 Cookie 会话下载该 URL，与用户手工保存样本逐字节一致（PNG 1080×1080，530930 字节，SHA-256 `b2bd77d5bb67035a959fbad509d31b2fc1e92d92867cb371c2ea736d9e5dc161`），确认公开动态原图质量不依赖登录态。
+
+## 追加验证：2026-11-19（通用 Agent Skill 化）
+
+文档去 Codex 专属表述，浏览器依赖改为能力契约（Codex `cua_repl` 降为参考实现），安装默认目录改为 `~/.agents/skills`，删除 `agents/openai.yaml`。采集与下载脚本逻辑未变。
+
+安装器在临时 HOME 目录实测：默认路径解析、重复安装拒绝、`--update` 时间戳备份、`--destination` 覆盖均通过，安装包不含厂商元数据与 `__pycache__`。回归同上：Python 20 项（Windows SIGTERM 环境项除外）、Node 9+8 项全部通过。能力契约中的接口签名逐项对照 `browser_collect.mjs` 实际调用核对。

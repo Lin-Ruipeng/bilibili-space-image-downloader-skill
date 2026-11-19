@@ -1,25 +1,25 @@
 # B站空间动态原图下载
 
-Codex 技能 `bilibili-space-image-downloader`：给定 UP 主 UID，收藏当前登录账号可见的全部历史空间动态原图，包含动图，支持断点恢复和失败补抓。专栏正文图片可选；转发、评论区、头像和视频封面不进入收藏。
+Agent Skill `bilibili-space-image-downloader`：给定 UP 主 UID，收藏当前登录账号可见的全部历史空间动态原图，包含动图，支持断点恢复和失败补抓。专栏正文图片可选；转发、评论区、头像和视频封面不进入收藏。
 
 **原图是灰色遮罩大图查看器实际加载的完整文件。** 技能逐页记录当前图片地址、原生尺寸和加载证据，下载后保存原始字节并校验格式、尺寸、帧数和 SHA-256。
 
 ## 安装
 
-需要带有内置浏览器及 `cua_repl` 工具的 Codex 桌面环境、已登录的 B站会话、Python 3.10+、Node.js 20+。Python 脚本使用 requests 和 Pillow；结构校验另需 PyYAML。依赖安装到你选用的 Python 环境：
+需要满足[浏览器能力契约](skills/bilibili-space-image-downloader/references/browser-workflow.md)的 agent 运行环境（已登录浏览器标签页 + JS REPL；Codex 桌面的 `cua_repl` 是已验证的参考实现）、已登录的 B站会话、Python 3.10+、Node.js 20+。Python 脚本使用 requests 和 Pillow；结构校验另需 PyYAML。依赖安装到你选用的 Python 环境：
 
 ```bash
 python3 -m pip install -r skills/bilibili-space-image-downloader/scripts/requirements.txt
 python3 install_skill.py
 ```
 
-默认安装到 `$CODEX_HOME/skills`，未设置时为 `~/.codex/skills`。已有同名技能时使用 `--update`，旧安装会保留为备份。安装后按 Codex 的技能发现机制重新加载或开启新对话。
+默认安装到跨 agent 共享技能目录 `~/.agents/skills`。装入某个 agent 的专属目录时用 `--destination`，例如 Claude Code `~/.claude/skills`、Codex `~/.codex/skills`（或 `$CODEX_HOME/skills`）。已有同名技能时使用 `--update`，旧安装会保留为备份。安装后按该 agent 的技能发现机制重新加载或开启新对话。
 
 ## 使用
 
-对 Codex 说：
+对 agent 说：
 
-> 用 $bilibili-space-image-downloader 下载 UID 123456 的全部空间动态原图。
+> 用 bilibili-space-image-downloader 技能下载 UID 123456 的全部空间动态原图。
 
 也可以要求“同时包含专栏”或指定保存根目录。默认位置：
 
@@ -32,7 +32,7 @@ python3 install_skill.py
   download_report.json
 ```
 
-技能由 Codex 操作内置浏览器完成发现和查看器采集。浏览器适配脚本必须通过 `cua_repl` 导入，不能直接作为普通 Node/Playwright 爬虫运行；它复用浏览器登录状态，下载器不读取 Cookie 或密码。
+技能由 agent 操作已登录浏览器完成发现和查看器采集。浏览器适配脚本必须在满足能力契约的 JS REPL 内导入，不能直接作为普通 Node/Playwright 爬虫运行；它复用浏览器登录状态，下载器不读取 Cookie 或密码。
 
 浏览器操作至少间隔三秒；下载最多两个并发，普通网络失败最多重试三次。重复图片按 SHA-256 使用硬链接保留各帖对应关系，无法硬链接时复制。真实格式决定扩展名，GIF、WebP 动图以及 MPO 多图文件均保留原始容器。
 
