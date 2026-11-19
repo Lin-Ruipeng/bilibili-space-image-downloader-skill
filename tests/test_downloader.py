@@ -249,6 +249,21 @@ class DownloadChecks(unittest.TestCase):
         self.assertEqual(self.state['attempts'], 3)
         self.assertTrue(downloader.stop.is_set())
 
+    def test_refresh_invalidates_stale_complete_manifest(self):
+        self.post()
+        self.finish_history()
+        downloader = self.downloader()
+        self.assertTrue(downloader.run()['complete'])
+        self.assertTrue(verify(self.root)['complete'])
+        initialize('12345', self.tmp.name, refresh=True)
+        result = verify(self.root)
+        self.assertFalse(result['complete'])
+        self.assertFalse(result['history_complete'])
+        self.assertTrue(result['files_valid'])
+        cli = subprocess.run([sys.executable, str(SCRIPTS / 'verify_archive.py'), '--root', str(self.root)],
+                             capture_output=True)
+        self.assertEqual(cli.returncode, 1)
+
     def test_uid_isolation_and_scope_guard(self):
         other = initialize('54321', self.tmp.name)
         self.assertNotEqual(other, self.root)
