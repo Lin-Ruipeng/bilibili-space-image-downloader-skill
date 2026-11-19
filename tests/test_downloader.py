@@ -1,5 +1,6 @@
 import hashlib
 import io
+import csv
 import json
 import os
 import random
@@ -256,6 +257,26 @@ class DownloadChecks(unittest.TestCase):
         self.assertIn('corrupt', quarantined.name)
         self.assertEqual(quarantined.read_bytes(), self.payload[:100])
         self.assertTrue(verify(self.root)['complete'])
+
+    def test_csv_formula_prefixes_are_escaped_but_json_keeps_raw_text(self):
+        self.post(text='=1+1')
+        self.finish_history()
+        downloader = self.downloader()
+        downloader.run()
+        raw = (self.root / 'download_manifest.csv').read_text(encoding='utf-8-sig')
+        rows = list(csv.DictReader(io.StringIO(raw)))
+        self.assertEqual(rows[0]['text'], "'=1+1")
+        manifest = json.loads((self.root / 'download_manifest.json').read_text(encoding='utf-8'))
+        self.assertEqual(manifest['posts'][0]['text'], '=1+1')
+        self.post(text=' \t@SUM(A1)')
+        downloader.run()
+        raw = (self.root / 'download_manifest.csv').read_text(encoding='utf-8-sig')
+        rows = list(csv.DictReader(io.StringIO(raw)))
+        self.assertEqual(rows[0]['text'], "' \t@SUM(A1)")
+        self.post(text='普通正文')
+        downloader.run()
+        rows = list(csv.DictReader(io.StringIO((self.root / 'download_manifest.csv').read_text(encoding='utf-8-sig'))))
+        self.assertEqual(rows[0]['text'], '普通正文')
 
     def test_missing_viewer_evidence_rejected(self):
         self.post(evidence=False)

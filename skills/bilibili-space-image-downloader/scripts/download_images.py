@@ -5,6 +5,7 @@ import csv
 import hashlib
 import json
 import os
+import re
 import shutil
 import signal
 import sqlite3
@@ -41,6 +42,12 @@ def inspect_file(path):
     return {'format': fmt, 'width': size[0], 'height': size[1], 'frames': frames,
             'animated': frames > 1 and fmt in {'GIF', 'PNG', 'WEBP', 'AVIF'},
             'bytes': Path(path).stat().st_size, 'sha256': sha.hexdigest()}
+
+
+def csv_safe(value):
+    if isinstance(value, str) and re.match(r'^[\s\x00-\x1f]*[=+\-@]', value):
+        return "'" + value
+    return value
 
 
 class Restriction(Exception):
@@ -386,7 +393,7 @@ class Downloader:
         with tmp.open('w', encoding='utf-8-sig', newline='') as f:
             writer = csv.DictWriter(f, fieldnames=list(rows[0]) if rows else ['post_id', 'ordinal', 'status'])
             writer.writeheader()
-            writer.writerows(rows)
+            writer.writerows([{k: csv_safe(v) for k, v in row.items()} for row in rows])
         os.replace(tmp, csv_path)
         atomic_json(self.root / 'download_report.json', summary)
         print(json.dumps({k: v for k, v in summary.items() if k not in {'capture_failures', 'download_failures', 'traversal'}}, ensure_ascii=False), flush=True)
