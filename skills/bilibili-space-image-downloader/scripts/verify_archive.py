@@ -6,7 +6,7 @@ from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 
-from archive import atomic_json, load_state, validate_post
+from archive import atomic_json, history_complete, load_state, validate_post
 from download_images import FORMATS, inspect_file
 
 
@@ -43,6 +43,8 @@ def verify(root, samples=(), write=True):
             folder = root / row['published'][:4] / f"{row['published'][:10]}_{row['post_id']}"
             if target.parent != folder or target.name != f"{row['ordinal']:03d}.{FORMATS[info['format']]}":
                 raise ValueError('unexpected archive location or extension')
+            if row.get('superseded_path') and not Path(row['superseded_path']).exists():
+                raise ValueError('superseded file missing')
             if row.get('duplicate_of'):
                 source = Path(row['duplicate_of'])
                 if inspect_file(source)['sha256'] != info['sha256']:
@@ -68,9 +70,17 @@ def verify(root, samples=(), write=True):
                 raise ValueError('manual sample differs byte for byte')
         except Exception as exc:
             errors.append({'sample': specification, 'error': str(exc)})
+    candidates = state.get('candidates', {})
+    history_done = history_complete(state)
+    complete_posts = all(p.get('capture_complete', False) for p in manifest['posts'])
+    capture_failures = [v for v in candidates.values() if v.get('status') not in {'captured', 'excluded'}]
+    captured_ids = {k for k, c in candidates.items() if c.get('status') == 'captured'}
+    coverage_ok = captured_ids == {str(p['id']) for p in manifest['posts'] if p.get('capture_complete')}
     result = {
         'verified_at': datetime.now(timezone.utc).isoformat(), 'uid': state['uid'],
-        'complete': bool(manifest['summary']['complete']) and not errors,
+        'complete': history_done and complete_posts and coverage_ok and not capture_failures
+                    and state.get('phase') not in {'blocked', 'interrupted'} and not errors,
+        'history_complete': history_done,
         'files_valid': not errors, 'images': len(actual), 'unique_files': len(cache),
         'formats': dict(Counter(row.get('format') for row in actual.values())),
         'samples': sample_results, 'errors': errors,

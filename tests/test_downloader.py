@@ -1,5 +1,6 @@
 import hashlib
 import io
+import csv
 import json
 import os
 import random
@@ -90,7 +91,7 @@ class DownloadChecks(unittest.TestCase):
         self.downloaders.append(downloader)
         return downloader
 
-    def post(self, post_id='90071992547409931', count=1, width=96, height=64, evidence=True):
+    def post(self, post_id='90071992547409931', count=1, width=96, height=64, evidence=True, text='generated fixture'):
         images = []
         for ordinal in range(1, count + 1):
             image = {'ordinal': ordinal, 'url': self.url, 'width': width, 'height': height}
@@ -101,7 +102,7 @@ class DownloadChecks(unittest.TestCase):
         atomic_json(self.root / '.collection/posts' / f'{post_id}.json', {
             'id': post_id, 'url': f'https://www.bilibili.com/opus/{post_id}', 'uid': '12345',
             'author_uid_verified': True, 'published': '2020-01-01T00:00:00+08:00',
-            'text': 'generated fixture', 'image_count': count, 'capture_complete': True, 'images': images,
+            'text': text, 'image_count': count, 'capture_complete': True, 'images': images,
         })
         state = load_state(self.root)
         state['candidates'][post_id] = {'id': post_id, 'status': 'captured', 'sources': ['dynamic', 'opus']}
@@ -193,6 +194,90 @@ class DownloadChecks(unittest.TestCase):
         self.assertEqual(len(report['obsolete_rows']), 1)
         self.assertTrue(Path(old_path).exists())
 
+    def test_changed_resource_supersedes_old_file_and_recovers(self):
+        self.post()
+        self.finish_history()
+        downloader = self.downloader()
+        self.assertTrue(downloader.run()['complete'])
+        old_path = Path(downloader.db.execute('SELECT path FROM images').fetchone()[0])
+        old_bytes = old_path.read_bytes()
+        output = io.BytesIO()
+        Image.new('RGB', (96, 64), 'red').save(output, format='PNG')
+        self.payload = output.getvalue()
+        self.url = f'http://127.0.0.1:{self.server.server_port}/viewer-resource-v2'
+        self.post()
+        self.assertTrue(downloader.run(failed_only=True)['complete'])
+        row = downloader.db.execute('SELECT * FROM images').fetchone()
+        self.assertEqual(row['status'], 'success')
+        self.assertEqual(Path(row['path']).read_bytes(), self.payload)
+        self.assertEqual(old_path, Path(row['path']))
+        superseded = Path(row['superseded_path'])
+        self.assertTrue(superseded.exists())
+        self.assertEqual(superseded.read_bytes(), old_bytes)
+        self.assertIn(hashlib.sha256(old_bytes).hexdigest()[:16], superseded.name)
+        self.assertTrue(verify(self.root)['complete'])
+        self.assertTrue(downloader.run(failed_only=True)['complete'])
+
+    def test_copy_fallback_interruption_leaves_no_final_file_and_recovers(self):
+        self.post(count=2)
+        self.finish_history()
+        payload = self.payload
+
+        def broken_copy(src, dst):
+            with open(src, 'rb') as fsrc, open(dst, 'wb') as fdst:
+                fdst.write(fsrc.read(len(payload) // 2))
+            raise OSError('simulated disk full mid-copy')
+
+        downloader = self.downloader()
+        with patch('download_images.os.link', side_effect=OSError('no hardlinks')), \
+             patch('download_images.shutil.copyfile', side_effect=broken_copy):
+            downloader.import_posts()
+            downloader.index_existing()
+            for row in list(downloader.db.execute('SELECT * FROM images WHERE active=1 ORDER BY ordinal')):
+                downloader.download(row)
+        folder = self.root / '2020' / '2020-01-01_90071992547409931'
+        self.assertFalse((folder / '002.png').exists())
+        self.assertFalse(list(folder.glob('*.copytmp')))
+        self.assertEqual(downloader.db.execute('SELECT status FROM images WHERE ordinal=2').fetchone()['status'], 'failed')
+        with patch('download_images.os.link', side_effect=OSError('no hardlinks')):
+            self.assertTrue(downloader.run(failed_only=True)['complete'])
+        self.assertEqual((folder / '002.png').read_bytes(), payload)
+
+    def test_corrupt_final_file_is_quarantined_and_replaced(self):
+        self.post()
+        self.finish_history()
+        target = self.root / '2020' / '2020-01-01_90071992547409931' / '001.png'
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(self.payload[:100])
+        downloader = self.downloader()
+        self.assertTrue(downloader.run()['complete'])
+        row = downloader.db.execute('SELECT * FROM images').fetchone()
+        self.assertEqual(Path(row['path']).read_bytes(), self.payload)
+        quarantined = Path(row['superseded_path'])
+        self.assertIn('corrupt', quarantined.name)
+        self.assertEqual(quarantined.read_bytes(), self.payload[:100])
+        self.assertTrue(verify(self.root)['complete'])
+
+    def test_csv_formula_prefixes_are_escaped_but_json_keeps_raw_text(self):
+        self.post(text='=1+1')
+        self.finish_history()
+        downloader = self.downloader()
+        downloader.run()
+        raw = (self.root / 'download_manifest.csv').read_text(encoding='utf-8-sig')
+        rows = list(csv.DictReader(io.StringIO(raw)))
+        self.assertEqual(rows[0]['text'], "'=1+1")
+        manifest = json.loads((self.root / 'download_manifest.json').read_text(encoding='utf-8'))
+        self.assertEqual(manifest['posts'][0]['text'], '=1+1')
+        self.post(text=' \t@SUM(A1)')
+        downloader.run()
+        raw = (self.root / 'download_manifest.csv').read_text(encoding='utf-8-sig')
+        rows = list(csv.DictReader(io.StringIO(raw)))
+        self.assertEqual(rows[0]['text'], "' \t@SUM(A1)")
+        self.post(text='普通正文')
+        downloader.run()
+        rows = list(csv.DictReader(io.StringIO((self.root / 'download_manifest.csv').read_text(encoding='utf-8-sig'))))
+        self.assertEqual(rows[0]['text'], '普通正文')
+
     def test_missing_viewer_evidence_rejected(self):
         self.post(evidence=False)
         with self.assertRaisesRegex(ValueError, 'viewer evidence'):
@@ -248,6 +333,30 @@ class DownloadChecks(unittest.TestCase):
         self.assertFalse(downloader.run()['complete'])
         self.assertEqual(self.state['attempts'], 3)
         self.assertTrue(downloader.stop.is_set())
+
+    def test_refresh_invalidates_stale_complete_manifest(self):
+        self.post()
+        self.finish_history()
+        downloader = self.downloader()
+        self.assertTrue(downloader.run()['complete'])
+        self.assertTrue(verify(self.root)['complete'])
+        initialize('12345', self.tmp.name, refresh=True)
+        result = verify(self.root)
+        self.assertFalse(result['complete'])
+        self.assertFalse(result['history_complete'])
+        self.assertTrue(result['files_valid'])
+        cli = subprocess.run([sys.executable, str(SCRIPTS / 'verify_archive.py'), '--root', str(self.root)],
+                             capture_output=True)
+        self.assertEqual(cli.returncode, 1)
+
+    def test_interrupted_requires_explicit_resume(self):
+        state = load_state(self.root)
+        state['phase'] = 'interrupted'
+        atomic_json(self.root / '.collection/index.json', state)
+        initialize('12345', self.tmp.name)
+        self.assertEqual(load_state(self.root)['phase'], 'interrupted')
+        initialize('12345', self.tmp.name, resume=True)
+        self.assertEqual(load_state(self.root)['phase'], 'discovering')
 
     def test_uid_isolation_and_scope_guard(self):
         other = initialize('54321', self.tmp.name)
