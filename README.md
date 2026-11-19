@@ -45,6 +45,7 @@ python3 install_skill.py
 ```bash
 python3 -m unittest discover -s tests -p 'test_*.py'
 node tests/test_browser_core.mjs
+node tests/test_browser_collect.mjs
 ```
 
 Python 集成测试启动仅监听本机的临时 HTTP 服务，需要允许本机监听。测试图片由程序生成，仓库不包含真实收藏、个人正文、浏览器凭据或采集清单。

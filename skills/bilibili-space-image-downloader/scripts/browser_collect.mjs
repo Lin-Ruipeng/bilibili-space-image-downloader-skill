@@ -176,9 +176,24 @@ export async function createCollector({tab, root, cdp = null, tabs = null}) {
     const plainAll = Array.from(root?.querySelectorAll('picture.b-img__inner') ?? []), plain = plainAll.filter(own);
     const horizontal = Array.from(root?.querySelectorAll('.horizontal-scroll-album__pic__img') ?? []).filter(own);
     const grid = Array.from(root?.querySelectorAll('.bili-album__preview__picture__img') ?? []).filter(own);
-    const groups = rich.length ? rich.map(e => ({type: 'rich', index: richAll.indexOf(e), pictures: e.querySelectorAll('img').length}))
-      : horizontal.length ? [{type: 'horizontal', index: 0}] : grid.length ? [{type: 'grid', index: 0}]
-      : plain.map(e => ({type: 'plain', index: plainAll.indexOf(e)}));
+    const countImgs = e => (e.tagName === 'IMG' ? 1 : 0) + e.querySelectorAll('img').length;
+    const groups = [], groupPictures = [];
+    let horizontalSeen = false, gridSeen = false;
+    // Document order across layouts; horizontal/grid stay one gallery unit each.
+    const layoutEls = Array.from(root?.querySelectorAll('.opus-pic-view,.horizontal-scroll-album__pic__img,.bili-album__preview__picture__img,picture.b-img__inner') ?? []).filter(own);
+    for (const e of layoutEls) {
+      if (e.matches('.opus-pic-view')) {
+        groups.push({type: 'rich', index: richAll.indexOf(e), pictures: countImgs(e)});
+        groupPictures.push(countImgs(e));
+      } else if (e.matches('.horizontal-scroll-album__pic__img')) {
+        if (!horizontalSeen) { horizontalSeen = true; groups.push({type: 'horizontal', index: 0}); groupPictures.push(horizontal.reduce((n, x) => n + countImgs(x), 0)); }
+      } else if (e.matches('.bili-album__preview__picture__img')) {
+        if (!gridSeen) { gridSeen = true; groups.push({type: 'grid', index: 0}); groupPictures.push(grid.reduce((n, x) => n + countImgs(x), 0)); }
+      } else {
+        groups.push({type: 'plain', index: plainAll.indexOf(e)});
+        groupPictures.push(countImgs(e));
+      }
+    }
     const authorNode = root?.querySelector('.opus-module-author__name');
     const authorLink = authorNode?.closest('a')?.href ?? root?.querySelector('[class*="opus-module-author"] a[href*="space.bilibili.com"]')?.href;
     return {author: authorNode?.textContent.trim(), author_uid: authorLink?.match(/space\.bilibili\.com\/([0-9]+)/)?.[1],
@@ -186,7 +201,8 @@ export async function createCollector({tab, root, cdp = null, tabs = null}) {
       text: root?.querySelector('.opus-module-content')?.innerText ?? '',
       title: root?.querySelector('.opus-module-title__text')?.textContent ?? '',
       column_id: root?.querySelector('.opus-module-copyright__right')?.textContent.match(/cv([0-9]+)/i)?.[1] ?? null,
-      groups, bodyImages: Array.from(root?.querySelectorAll('img') ?? []).filter(own).length,
+      groups, group_pictures: groupPictures, expected_images: groupPictures.reduce((n, x) => n + x, 0),
+      bodyImages: Array.from(root?.querySelectorAll('img') ?? []).filter(own).length,
       repost: Boolean(root?.querySelector('.opus-module-forward,.bili-dyn-forward')),
       restriction: /验证码|访问过于频繁|访问受限|账号登录已失效/.test(document.body.innerText)};
   });
@@ -279,6 +295,7 @@ export async function createCollector({tab, root, cdp = null, tabs = null}) {
       }
     }
     collector.current = {candidate, groups: metadata.groups, gi: resumeGroup, base: prefix.length, page: 0, total: 0, phase: 'open',
+      expected: metadata.expected_images, group_pictures: metadata.group_pictures, body_images: metadata.bodyImages,
       post: {id: candidate.id, url: candidate.url, uid: collector.index.uid, author: metadata.author,
         author_uid_verified: true, author_uid_source: authorSource, published, published_precision: 'minute', platform_publication_timestamp: candidate.author_pub_ts,
         text: metadata.text, title: metadata.title, column_id: metadata.column_id, source_entries: candidate.sources,
@@ -287,8 +304,9 @@ export async function createCollector({tab, root, cdp = null, tabs = null}) {
   };
   collector.record = async image => {
     const current = collector.current;
-    if (current.gi === 0 && current.groups[0].type === 'rich' && current.groups.every(g => g.pictures === 1)
-        && image.total === current.groups.length && image.total > 1) current.groups = current.groups.slice(0, 1);
+    if (current.gi === 0 && image.total > 1 && image.total === current.expected) current.groups = current.groups.slice(0, 1);
+    else if (image.total > (current.group_pictures[current.gi] ?? image.total) && image.total !== current.expected)
+      throw Error('viewer total mismatch with body group layout');
     current.page = image.page; current.total = image.total;
     const ordinal = current.base + image.page;
     current.post.images[ordinal - 1] = {ordinal, url: image.url, width: image.width, height: image.height,
@@ -373,6 +391,8 @@ export async function createCollector({tab, root, cdp = null, tabs = null}) {
     } else {
       const expected = current.candidate.expected_images_hint;
       if (expected && current.post.images.length !== expected) throw Error('post image count mismatch');
+      if (current.post.images.length !== current.expected) throw Error('post image count mismatch with body layout');
+      if (current.body_images !== current.expected) throw Error('unassigned body images mismatch');
       current.post.capture_complete = true; delete current.candidate.error;
       await collector.persist(); collector.current = null; collector.activeCandidate = null;
       return {status: 'captured', id: current.post.id, images: current.post.images.length};
