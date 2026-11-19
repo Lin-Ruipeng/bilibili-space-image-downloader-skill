@@ -91,7 +91,7 @@ class DownloadChecks(unittest.TestCase):
         self.downloaders.append(downloader)
         return downloader
 
-    def post(self, post_id='90071992547409931', count=1, width=96, height=64, evidence=True):
+    def post(self, post_id='90071992547409931', count=1, width=96, height=64, evidence=True, text='generated fixture'):
         images = []
         for ordinal in range(1, count + 1):
             image = {'ordinal': ordinal, 'url': self.url, 'width': width, 'height': height}
@@ -102,7 +102,7 @@ class DownloadChecks(unittest.TestCase):
         atomic_json(self.root / '.collection/posts' / f'{post_id}.json', {
             'id': post_id, 'url': f'https://www.bilibili.com/opus/{post_id}', 'uid': '12345',
             'author_uid_verified': True, 'published': '2020-01-01T00:00:00+08:00',
-            'text': 'generated fixture', 'image_count': count, 'capture_complete': True, 'images': images,
+            'text': text, 'image_count': count, 'capture_complete': True, 'images': images,
         })
         state = load_state(self.root)
         state['candidates'][post_id] = {'id': post_id, 'status': 'captured', 'sources': ['dynamic', 'opus']}
