@@ -4,7 +4,7 @@
 
 脚本是 Codex 浏览器工具的适配器，必须在已初始化的 `cua_repl` 内导入；它不是独立 Playwright 程序，也不通过本地 HTTP 调用动态 API。
 
-先按当前工具文档取得内置浏览器标签页，打开 `https://space.bilibili.com/UID/dynamic` 并读取状态。导入前阅读此脚本和当前浏览器文档；需要观察分页响应时，先读取 `tab.capabilities.get('cdp').documentation()`。使用已获准的 `cdp` 能力仅观察页面自己发起的请求；权限拒绝时保存进度并停止。如果该能力不可用，可传入 `null`，但仍需可见的明确结束标记才能完成。
+先按当前工具文档取得内置浏览器标签页，打开 `https://space.bilibili.com/UID/dynamic` 并读取状态。导入前阅读此脚本和当前浏览器文档；需要观察分页响应时，先读取 `tab.capabilities.get('cdp').documentation()`。使用已获准的 `cdp` 能力仅观察页面自己发起的请求；初始化 `Network.enable` 或后续操作被权限拒绝时，保存 `blocked` 状态与原因并停止，恢复访问后按恢复流程继续。如果该能力不可用，可传入 `null`，但仍需可见的明确结束标记才能完成。
 
 在 `cua_repl` 中，替换为已确认的技能路径、归档路径和 Tab 变量：
 

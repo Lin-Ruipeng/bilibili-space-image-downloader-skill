@@ -112,6 +112,30 @@ test('unassignable body images fail the post instead of reporting complete', asy
   assert.equal(collector.current.post.capture_complete, false);
 });
 
+test('CDP permission denial during Network.enable persists blocked state', async () => {
+  const root = await fixture('discovering');
+  const cdp = {
+    send: async method => { throw Error(`saved user permission denied: ${method}`); },
+    readEvents: async () => ({cursor: 0, events: [], hasMore: false}),
+  };
+  await assert.rejects(() => createCollector({tab: stubTab(), root, cdp}), /saved user permission/);
+  const index = JSON.parse(await fs.readFile(path.join(root, '.collection', 'index.json'), 'utf8'));
+  assert.equal(index.phase, 'blocked');
+  assert.match(index.blocked_reason, /Network\.enable/);
+});
+
+test('non-permission CDP init errors propagate without touching state', async () => {
+  const root = await fixture('discovering');
+  const cdp = {
+    send: async () => { throw Error('CDP method not supported'); },
+    readEvents: async () => ({cursor: 0, events: [], hasMore: false}),
+  };
+  await assert.rejects(() => createCollector({tab: stubTab(), root, cdp}), /not supported/);
+  const index = JSON.parse(await fs.readFile(path.join(root, '.collection', 'index.json'), 'utf8'));
+  assert.equal(index.phase, 'discovering');
+  assert.equal(index.blocked_reason, undefined);
+});
+
 test('an unexplainable viewer aggregation fails instead of guessing ordinals', async () => {
   const root = await fixture();
   const rich = wrapper('.opus-pic-view', [img()]);

@@ -47,8 +47,13 @@ export async function createCollector({tab, root, cdp = null, tabs = null}) {
   };
   collector.enableObservation = async () => {
     if (!cdp) return;
-    await cdp.send('Network.enable');
-    collector.cursor = (await cdp.readEvents({methods: NETWORK_METHODS})).cursor;
+    try {
+      await cdp.send('Network.enable');
+      collector.cursor = (await cdp.readEvents({methods: NETWORK_METHODS})).cursor;
+    } catch (error) {
+      if (RESTRICTION.test(String(error))) await collector.block(error);
+      throw error;
+    }
   };
   collector.close = async () => { if (cdp) await cdp.send('Network.disable'); };
 
