@@ -193,6 +193,30 @@ class DownloadChecks(unittest.TestCase):
         self.assertEqual(len(report['obsolete_rows']), 1)
         self.assertTrue(Path(old_path).exists())
 
+    def test_changed_resource_supersedes_old_file_and_recovers(self):
+        self.post()
+        self.finish_history()
+        downloader = self.downloader()
+        self.assertTrue(downloader.run()['complete'])
+        old_path = Path(downloader.db.execute('SELECT path FROM images').fetchone()[0])
+        old_bytes = old_path.read_bytes()
+        output = io.BytesIO()
+        Image.new('RGB', (96, 64), 'red').save(output, format='PNG')
+        self.payload = output.getvalue()
+        self.url = f'http://127.0.0.1:{self.server.server_port}/viewer-resource-v2'
+        self.post()
+        self.assertTrue(downloader.run(failed_only=True)['complete'])
+        row = downloader.db.execute('SELECT * FROM images').fetchone()
+        self.assertEqual(row['status'], 'success')
+        self.assertEqual(Path(row['path']).read_bytes(), self.payload)
+        self.assertEqual(old_path, Path(row['path']))
+        superseded = Path(row['superseded_path'])
+        self.assertTrue(superseded.exists())
+        self.assertEqual(superseded.read_bytes(), old_bytes)
+        self.assertIn(hashlib.sha256(old_bytes).hexdigest()[:16], superseded.name)
+        self.assertTrue(verify(self.root)['complete'])
+        self.assertTrue(downloader.run(failed_only=True)['complete'])
+
     def test_missing_viewer_evidence_rejected(self):
         self.post(evidence=False)
         with self.assertRaisesRegex(ValueError, 'viewer evidence'):

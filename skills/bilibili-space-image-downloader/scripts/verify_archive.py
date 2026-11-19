@@ -43,6 +43,8 @@ def verify(root, samples=(), write=True):
             folder = root / row['published'][:4] / f"{row['published'][:10]}_{row['post_id']}"
             if target.parent != folder or target.name != f"{row['ordinal']:03d}.{FORMATS[info['format']]}":
                 raise ValueError('unexpected archive location or extension')
+            if row.get('superseded_path') and not Path(row['superseded_path']).exists():
+                raise ValueError('superseded file missing')
             if row.get('duplicate_of'):
                 source = Path(row['duplicate_of'])
                 if inspect_file(source)['sha256'] != info['sha256']:

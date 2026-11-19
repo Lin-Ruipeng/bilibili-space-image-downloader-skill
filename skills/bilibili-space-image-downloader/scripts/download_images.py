@@ -11,7 +11,7 @@ import sqlite3
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -72,6 +72,8 @@ class Downloader:
             self.db.execute('ALTER TABLE images ADD COLUMN active INTEGER DEFAULT 1')
         if 'reuse_reason' not in columns:
             self.db.execute('ALTER TABLE images ADD COLUMN reuse_reason TEXT')
+        if 'superseded_path' not in columns:
+            self.db.execute('ALTER TABLE images ADD COLUMN superseded_path TEXT')
         self.db.commit()
         self.lock = threading.RLock()
         self.stop = threading.Event()
@@ -126,6 +128,14 @@ class Downloader:
             self.db.execute('UPDATE images SET ' + ','.join(f'{k}=?' for k in values) + ' WHERE post_id=? AND ordinal=?',
                             [*values.values(), row['post_id'], row['ordinal']])
             self.db.commit()
+
+    def supersede(self, target, row, sha):
+        destination = self.collection / 'superseded' / f"{row['post_id']}_{row['ordinal']:03d}_{sha[:16]}{target.suffix}"
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        os.replace(target, destination)
+        if self.hash_paths.get(sha) == str(target):
+            self.hash_paths[sha] = str(destination)
+        return str(destination)
 
     def fetch(self, row, part):
         parsed = urlparse(row['url'])
@@ -228,32 +238,35 @@ class Downloader:
                 folder = self.root / date[:4] / f"{date}_{row['post_id']}"
                 folder.mkdir(parents=True, exist_ok=True)
                 target = folder / f"{row['ordinal']:03d}.{FORMATS[info['format']]}"
-                duplicate, reuse, reuse_reason = None, None, None
+                duplicate, reuse, reuse_reason, superseded_path = None, None, None, None
                 with self.lock:
                     if target.exists():
-                        if inspect_file(target)['sha256'] != info['sha256']:
-                            raise ValueError(f'preserving existing different file: {target}')
-                        duplicate = self.hash_paths.get(info['sha256'])
-                        if duplicate == str(target):
-                            duplicate = None
-                        reuse = 'existing'
-                        part.unlink(missing_ok=True)
-                    elif info['sha256'] in self.hash_paths:
-                        duplicate = self.hash_paths[info['sha256']]
-                        try:
-                            os.link(duplicate, target)
-                            reuse = 'hardlink'
-                        except OSError as exc:
-                            shutil.copyfile(duplicate, target)
-                            reuse = 'copy'
-                            reuse_reason = str(exc)
-                        part.unlink(missing_ok=True)
-                    else:
-                        os.replace(part, target)
+                        old_info = inspect_file(target)
+                        if old_info['sha256'] == info['sha256']:
+                            duplicate = self.hash_paths.get(info['sha256'])
+                            if duplicate == str(target):
+                                duplicate = None
+                            reuse = 'existing'
+                            part.unlink(missing_ok=True)
+                        else:
+                            superseded_path = self.supersede(target, row, old_info['sha256'])
+                    if reuse is None:
+                        if info['sha256'] in self.hash_paths:
+                            duplicate = self.hash_paths[info['sha256']]
+                            try:
+                                os.link(duplicate, target)
+                                reuse = 'hardlink'
+                            except OSError as exc:
+                                shutil.copyfile(duplicate, target)
+                                reuse = 'copy'
+                                reuse_reason = str(exc)
+                            part.unlink(missing_ok=True)
+                        else:
+                            os.replace(part, target)
                     self.hash_paths.setdefault(info['sha256'], str(target))
                 part.with_suffix('.part.json').unlink(missing_ok=True)
                 self.update(row, status='success', path=str(target), duplicate_of=duplicate,
-                            reuse_mode=reuse, reuse_reason=reuse_reason, error=None,
+                            reuse_mode=reuse, reuse_reason=reuse_reason, superseded_path=superseded_path, error=None,
                             **{k: info[k] for k in ['format', 'width', 'height', 'frames', 'bytes', 'sha256']})
                 print(json.dumps({'post': row['post_id'], 'image': row['ordinal'], 'status': 'success',
                                   'format': info['format'], 'frames': info['frames'], 'duplicate': bool(duplicate)}, ensure_ascii=False), flush=True)
